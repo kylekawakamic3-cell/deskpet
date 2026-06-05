@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Desk Pet Preview</title>
+    <style>
+        body {
+            background-color: #1a1a2e;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            color: white;
+            font-family: sans-serif;
+            flex-direction: column;
+            gap: 14px;
+        }
+        canvas {
+            background-color: black;
+            box-shadow: 0 0 30px rgba(100,80,255,0.3), 0 0 10px rgba(0,0,0,0.8);
+            border-radius: 8px;
+            width: 384px;
+            height: 192px;
+            image-rendering: pixelated;
+        }
+        p { margin: 0; color: #666; font-size: 12px; }
+        .controls { display: flex; gap: 10px; }
+        button {
+            padding: 8px 18px;
+            font-size: 13px;
+            cursor: pointer;
+            border-radius: 6px;
+            border: 2px solid #4CAF50;
+            background: #4CAF50;
+            color: white;
+            user-select: none;
+            transition: background 0.1s;
+        }
+        button:active { background: #2e7d32; border-color: #2e7d32; }
+        #label { color: #555; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <h2 style="margin:0;letter-spacing:1px">Desk Pet Display Preview</h2>
+    <div class="controls">
+        <button id="shortBtn">Short Press — next app</button>
+        <button id="longBtn">Long Press — app action</button>
+    </div>
+    <canvas id="screen" width="128" height="64"></canvas>
+    <div id="label">App: PET</div>
+    <p>128 × 64 monochrome OLED simulation</p>
+
+    <script>
+        const canvas = document.getElementById('screen');
+        const ctx    = canvas.getContext('2d');
+        const label  = document.getElementById('label');
+
+        // ── App State ────────────────────────────────────────────────
+        const APPS = ["PET", "STOCK", "FORTUNE"];
+        let currentApp = "PET";
+
+        function onButtonEvent(event) {
+            if (event === "SHORT") {
+                currentApp = APPS[(APPS.indexOf(currentApp) + 1) % APPS.length];
+                label.textContent = `App: ${currentApp}`;
+            } else if (event === "LONG") {
+                if (currentApp === "FORTUNE") onFortuneLongPress();
+                if (currentApp === "STOCK")   stockRefresh();
+            }
+        }
+
+        document.getElementById('shortBtn').addEventListener('click', () => onButtonEvent("SHORT"));
+        document.getElementById('longBtn').addEventListener('click',  () => onButtonEvent("LONG"));
+
+        // ── Helpers ──────────────────────────────────────────────────
+        function ease(t) { return t < 0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
+
+        // ── Stock ────────────────────────────────────────────────────
+        let stockPrice = 150.00;
+        let mockData   = [150, 151.2, 150.8, 149.5, 152, 153.1, 152.5, 154, 153.8, 155.2];
+        setInterval(() => {
+            stockPrice = mockData[mockData.length - 1] + (Math.random() * 2 - 1);
+            mockData.push(stockPrice);
+            if (mockData.length > 128) mockData.shift();
+        }, 1500);
+        function stockRefresh() { console.log("Stock: manual refresh triggered"); }
+
+        // ── Pet params ───────────────────────────────────────────────
+        const eyeRx = 12, eyeRy = 20, eyeSpacing = 48, cx = 64, cy = 32;
+        let petState = "IDLE", petStateStart = performance.now();
+        let nextAction = petStateStart + Math.random() * 3000 + 2000;
+        let isBlink = false, blinkT = 0, nextBlink = petStateStart + Math.random()*2000+3000;
+        const BLINK_DUR = 100;
+        let tX=0,tY=0,tSq=1,tCh=0, sX=0,sY=0,sSq=1,sCh=0, mT=performance.now();
+        let cX=0,cY=0,cSq=1,cCh=0;
+        const M_DUR = 150;
+
+        function petChange() {
+            sX=cX; sY=cY; sSq=cSq; sCh=cCh; mT=performance.now();
+            petState = petState !== "IDLE" ? "IDLE"
+                : ["LOOK_LEFT","LOOK_RIGHT","HAPPY","NAPPING"][Math.floor(Math.random()*4)];
+            petStateStart = performance.now();
+            nextAction = petStateStart + (
+                petState==="NAPPING"?Math.random()*4000+4000:
+                petState==="HAPPY" ?Math.random()*2000+4000:
+                petState==="IDLE"  ?Math.random()*3000+1000:Math.random()*1000+500);
+        }
+
+        function drawEye(x, y, open, cheek, left) {
+            ctx.fillStyle = "white";
+            ctx.beginPath(); ctx.ellipse(x,y,eyeRx,eyeRy,0,0,Math.PI*2); ctx.fill();
+            const cr=24, cby=y+eyeRy+cr, rise=cheek*12, ox=left?-6:6;
+            ctx.fillStyle = "black";
+            ctx.beginPath(); ctx.arc(x+ox, cby-rise, cr, 0, Math.PI*2); ctx.fill();
+            const ew=eyeRx*2+8, eh=eyeRy+8, drop=(1-open)*(eyeRy+4);
+            ctx.fillStyle = "black";
+            ctx.fillRect(x-eyeRx-4, y-eyeRy-4-eh+drop, ew, eh);
+            ctx.fillRect(x-eyeRx-4, y+eyeRy+4-drop, ew, eh);
+        }
+
+        function drawPet(ts) {
+            if (ts >= nextAction) petChange();
+            switch(petState) {
+                case "IDLE":       tX=0;   tY=0; tSq=1; tCh=0; break;
+                case "LOOK_LEFT":  tX=-12; tY=0; tSq=1; tCh=0; break;
+                case "LOOK_RIGHT": tX=12;  tY=0; tSq=1; tCh=0; break;
+                case "HAPPY":      tX=0;   tY=0; tSq=1; tCh=1; break;
+                case "NAPPING":    tX=0;   tY=0; tSq=0; tCh=0; break;
+            }
+            const ep = ease(Math.min((ts-mT)/M_DUR,1));
+            cX=sX+(tX-sX)*ep; cY=sY+(tY-sY)*ep; cSq=sSq+(tSq-sSq)*ep; cCh=sCh+(tCh-sCh)*ep;
+            let bv = 1;
+            if (isBlink) {
+                const p=(ts-blinkT)/BLINK_DUR;
+                if(p>=1) isBlink=false;
+                else bv = p<0.5 ? 1-ease(p*2) : ease((p-.5)*2);
+            } else if (ts >= nextBlink) {
+                isBlink=true; blinkT=ts; nextBlink=ts+Math.random()*2000+3000;
+            }
+            const fopen = Math.max(0.1, Math.min(cSq, bv));
+            drawEye(cx-eyeSpacing/2+cX, cy+cY, fopen, cCh, true);
+            drawEye(cx+eyeSpacing/2+cX, cy+cY, fopen, cCh, false);
+        }
+
+        function drawStock() {
+            const diff = stockPrice - 150, pct = (diff/150)*100, sign = diff>=0?"+":"";
+            ctx.fillStyle="white"; ctx.font="12px monospace"; ctx.textBaseline="middle";
+            ctx.textAlign="left";  ctx.fillText("C3.AI", 12, 17);
+            ctx.fillText(`$${stockPrice.toFixed(2)}`, 12, 28);
+            ctx.textAlign="right"; ctx.fillText(`${sign}${pct.toFixed(1)}%`, 116, 28);
+            ctx.textAlign="left";
+            if (mockData.length > 1) {
+                const mn=Math.min(...mockData), mx=Math.max(...mockData), rng=mx-mn||1;
+                const step=104/(mockData.length-1);
+                ctx.strokeStyle="white"; ctx.lineWidth=1; ctx.beginPath();
+                for(let i=0;i<mockData.length;i++){
+                    const px=12+i*step, py=34+18-((mockData[i]-mn)/rng)*18;
+                    i===0?ctx.moveTo(px,py):ctx.lineTo(px,py);
+                }
+                ctx.stroke();
+            }
+        }
+
+        // ── Fortune / Magic Ball ─────────────────────────────────────
+        const FORTUNES = [
+            "A golden opportunity is closer than you think.",
+            "Your creativity will open a door you never expected.",
+            "Great abundance flows naturally toward you.",
+            "The stars are aligning to bring you prosperity.",
+            "Your kindness today plants seeds of tomorrow's success.",
+            "Fortune smiles upon those who dare to dream boldly.",
+            "A breakthrough moment is arriving at the perfect time.",
+            "Everything you have worked for is about to pay off.",
+            "Your next chapter is filled with joy and abundance.",
+            "Luck is not chance — it is your talent meeting opportunity.",
+            "The universe is conspiring in your favor today.",
+            "New horizons are opening just ahead of you.",
+            "Your best days are not behind you — they are coming.",
+            "A wonderful surprise is making its way to you right now.",
+            "You carry within you the seeds of extraordinary success.",
+            "Prosperity will find you exactly where you stand.",
+            "Today's small step is tomorrow's giant leap forward.",
+            "Your unique gifts are about to be recognized and rewarded.",
+            "Joy and fortune travel together, and both seek you out.",
+            "The road ahead sparkles with promise and good fortune.",
+        ];
+
+        let fState = "IDLE";
+        let fAnimStart = 0;
+        let currentFortune = "";
+        const SPARKLE_DUR = 1800, REVEAL_DUR = 600, CLOSE_DUR = 500;
+
+        // Staggered diagonally — not horizontally symmetric
+        const SPARKLE_DEFS = [
+            { ox: -28, oy: -5, base: 5.0, phase: 0.0 },  // upper-left
+            { ox:  25, oy:  9, base: 3.5, phase: 1.1 },  // lower-right
+            { ox:  -8, oy: 23, base: 2.5, phase: 2.3 },  // below-left
+        ];
+
+        function onFortuneLongPress() {
+            if (fState === "IDLE") {
+                currentFortune = FORTUNES[Math.floor(Math.random() * FORTUNES.length)];
+                fState = "SPARKLING"; fAnimStart = performance.now();
+            } else if (fState === "OPEN") {
+                fState = "CLOSING"; fAnimStart = performance.now();
+            }
+        }
+
+        function drawSparkle(x, y, r) {
+            const inner = r * 0.22;
+            ctx.beginPath();
+            for (let i = 0; i < 8; i++) {
+                const angle = (i * Math.PI) / 4 - Math.PI / 2;
+                const radius = i % 2 === 0 ? r : inner;
+                ctx.lineTo(x + Math.cos(angle)*radius, y + Math.sin(angle)*radius);
+            }
+            ctx.closePath(); ctx.fill();
+        }
+
+        function drawBall(bx, by, alpha) {
+            ctx.save(); ctx.globalAlpha = alpha;
+            const R = 14;
+            ctx.fillStyle = "white";
+            ctx.beginPath(); ctx.arc(bx, by, R, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "black";
+            ctx.beginPath(); ctx.arc(bx, by, R-3, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = "white";
+            drawSparkle(bx-6, by-5, 4);
+            drawSparkle(bx+5, by+5, 2.5);
+            drawSparkle(bx+7, by-8, 1.5);
+            // Trapezoid base
+            ctx.fillStyle = "white";
+            ctx.beginPath();
+            ctx.moveTo(bx-15, by+R);
+            ctx.lineTo(bx+15, by+R);
+            ctx.lineTo(bx+9,  by+R+10);
+            ctx.lineTo(bx-9,  by+R+10);
+            ctx.closePath(); ctx.fill();
+            ctx.restore();
+        }
+
+        function wrapText(text, maxW) {
+            const words = text.split(" ");
+            const lines = []; let line = "";
+            for (const w of words) {
+                const t = line ? `${line} ${w}` : w;
+                if (ctx.measureText(t).width > maxW) { lines.push(line); line = w; }
+                else line = t;
+            }
+            if (line) lines.push(line);
+            return lines;
+        }
+
+        function drawFortune(ts) {
+            let ballAlpha=1, sparkleScale=1, textAlpha=0;
+
+            if (fState === "SPARKLING") {
+                const t = (ts - fAnimStart) / SPARKLE_DUR;
+                sparkleScale = 1.0 + 0.6 * Math.abs(Math.sin(t * Math.PI * 9));
+                if (t >= 1.0) { fState = "REVEALING"; fAnimStart = ts; }
+            } else if (fState === "REVEALING") {
+                const t = Math.min((ts - fAnimStart) / REVEAL_DUR, 1.0);
+                ballAlpha = 1 - ease(t); textAlpha = ease(t); sparkleScale = 1 - t;
+                if (t >= 1.0) fState = "OPEN";
+            } else if (fState === "OPEN") {
+                ballAlpha = 0; textAlpha = 1; sparkleScale = 0;
+            } else if (fState === "CLOSING") {
+                const t = Math.min((ts - fAnimStart) / CLOSE_DUR, 1.0);
+                ballAlpha = ease(t); textAlpha = 1 - ease(t); sparkleScale = ease(t);
+                if (t >= 1.0) fState = "IDLE";
+            }
+
+            const ballCX = 64, ballCY = 30;
+
+            // Ball + sparkles
+            if (ballAlpha > 0.01) {
+                ctx.fillStyle = "white";
+                ctx.globalAlpha = ballAlpha;
+                ctx.font = "8px monospace";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillText("Hold to reveal", 64, 4);
+                ctx.globalAlpha = 1;
+
+                drawBall(ballCX, ballCY, ballAlpha);
+
+                if (sparkleScale > 0.01) {
+                    const now = ts / 1000;
+                    for (const sp of SPARKLE_DEFS) {
+                        const idle   = 0.55 + 0.45 * Math.sin(now * 1.8 + sp.phase);
+                        const active = fState === "SPARKLING"
+                            ? 0.5 + 0.5 * Math.abs(Math.sin(now * 14 + sp.phase)) : idle;
+                        const size = sp.base * sparkleScale * active;
+                        if (size > 0.3) {
+                            ctx.globalAlpha = ballAlpha * active;
+                            ctx.fillStyle = "white";
+                            drawSparkle(ballCX + sp.ox, ballCY + sp.oy, size);
+                        }
+                    }
+                    ctx.globalAlpha = 1;
+                }
+            }
+
+            // Fortune card
+            if (textAlpha > 0.01) {
+                ctx.save(); ctx.globalAlpha = textAlpha;
+
+                ctx.fillStyle = "white";
+                ctx.font = "8px monospace";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                ctx.fillText("Hold to reset", 64, 4);
+
+                const cX=4, cY=14, cW=120, cH=46;
+                ctx.fillStyle = "white";
+                ctx.fillRect(cX, cY, cW, cH);
+                ctx.strokeStyle = "black"; ctx.lineWidth = 1;
+                ctx.strokeRect(cX+2, cY+2, cW-4, cH-4);
+
+                ctx.fillStyle = "black";
+                ctx.font = "8px monospace";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "top";
+                const lines  = wrapText(currentFortune, cW - 14);
+                const lineH  = 10;
+                const totalH = lines.length * lineH;
+                const startY = Math.round(cY + (cH - totalH) / 2);
+                lines.forEach((l, i) => ctx.fillText(l, 64, startY + i * lineH));
+
+                ctx.restore();
+            }
+        }
+
+        // ── Main Loop ────────────────────────────────────────────────
+        function loop(ts) {
+            ctx.fillStyle = "black";
+            ctx.fillRect(0, 0, 128, 64);
+            ctx.globalAlpha = 1;
+
+            if      (currentApp === "PET")     drawPet(ts);
+            else if (currentApp === "STOCK")   drawStock();
+            else if (currentApp === "FORTUNE") drawFortune(ts);
+
+            requestAnimationFrame(loop);
+        }
+
+        requestAnimationFrame(loop);
+    </script>
+</body>
+</html>
